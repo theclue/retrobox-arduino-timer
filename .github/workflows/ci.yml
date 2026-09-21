@@ -61,21 +61,3 @@ jobs:
           name: retrobox-timer-hex
           path: build/*.hex
           if-no-files-found: warn
-
-  test:
-    name: Compile-only test gate
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Report current test suite
-        run: |
-          echo "Compile pulita con --warnings all = gate di test attuale. Test su simulatore (simavr) pianificati — vedi placeholder sotto."
-
-      # Scaffold futuro per test su simulatore:
-      # - name: Install simavr
-      #   run: sudo apt-get update && sudo apt-get install -y simavr
-      # - name: Run simavr tests
-      #   run: |
-      #     mkdir -p tests
-      #     # Aggiungere qui firmware fixture, harness e asserzioni simavr.
