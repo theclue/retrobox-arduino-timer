@@ -17,13 +17,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup arduino-cli
         uses: arduino/setup-arduino-cli@v2
 
       - name: Cache Arduino CLI data
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.arduino15
           key: ${{ runner.os }}-arduino-${{ hashFiles('.github/workflows/ci.yml') }}
