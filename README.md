@@ -38,10 +38,11 @@
 
 Assicurati di installare le seguenti librerie dal Library Manager dell'IDE Arduino:
 
-- `LiquidCrystal_I2C`  
-- `r89m PushButton` di [Richard Miles](https://github.com/r89m/PushButton) e relative dipendenze `Bounce2` e `Button`.
-    - Le dipendenze sono automaticamente risolte nella versione corretta se installato tramite Library Manager di Arduino IDE.
-- `TimerOne`
+- `LiquidCrystal I2C` di Marco Schwartz/Frank de Brabander
+- `TimerOne` di Paul Stoffregen
+- `r89m PushButton` di [Richard Miles](https://github.com/r89m/PushButton), con le dipendenze `r89m Buttons` e `Bounce2` risolte automaticamente.
+
+Le versioni pinnate usate dalla CI sono `LiquidCrystal I2C` 1.1.4, `TimerOne` 1.2, `Bounce2` 2.72, `r89m Buttons` 2.0.1 e `r89m PushButton` 1.0.1. Il comando `make lib-install` installa tutte le librerie necessarie.
 
 ## 🔨 Build da riga di comando
 

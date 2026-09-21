@@ -66,7 +66,7 @@ clean:
 
 # Versioni pinnate in CI: vedi .github/workflows/ci.yml
 lib-install: check-cli
-	$(ARDUINO_CLI) lib install "LiquidCrystal I2C" "TimerOne" "PushButton" "Bounce2"
+	$(ARDUINO_CLI) lib install "LiquidCrystal I2C" "TimerOne" "Bounce2" "r89m Buttons" "r89m PushButton"
 
 setup: check-cli
 	$(ARDUINO_CLI) core update-index
