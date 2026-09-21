@@ -331,6 +331,8 @@ void onButtonPressed(Button& btn){
 // Reset del Timer
 // E' disattivato quando il timer e' in stato di "running"
 void onSetHold(Button& btn, uint16_t duration){
+  (void)btn;      // firma imposta dalla libreria r89m Button
+  (void)duration;
   if (current_mode != MODE_RUNNING) {
     #ifdef DEBUG
     Serial.print("Mode: "); Serial.print(current_mode) ; Serial.println("; Timer Reset!");
@@ -351,6 +353,8 @@ void onSetHold(Button& btn, uint16_t duration){
 // Auto-incrementi di unita' temporali
 // I pulsanti '+' e '-' possono essere tenuti premuti per incrementi/decrementi di 10 unità
 void onButtonsHoldRepeat(Button& btn, uint16_t duration, uint16_t repeatCount){
+  (void)duration;
+  (void)repeatCount;
   if (btn.is(plus_button) && current_mode == MODE_SET){
     // Pulsante "plus" premuto
     // Non ha effetto se la macchina non e' nello stato "set"
