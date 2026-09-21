@@ -1,0 +1,90 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "🔨 Build",
+      "type": "shell",
+      "command": "make compile",
+      "options": {
+        "cwd": "${workspaceFolder:📦 RetroBox Timer (root)}"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$gcc"],
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "🔍 Verify (warnings)",
+      "type": "shell",
+      "command": "make compile",
+      "options": {
+        "cwd": "${workspaceFolder:📦 RetroBox Timer (root)}"
+      },
+      "problemMatcher": ["$gcc"],
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "📤 Upload",
+      "type": "shell",
+      "command": "make upload",
+      "options": {
+        "cwd": "${workspaceFolder:📦 RetroBox Timer (root)}"
+      },
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "🧹 Clean",
+      "type": "shell",
+      "command": "make clean",
+      "options": {
+        "cwd": "${workspaceFolder:📦 RetroBox Timer (root)}"
+      },
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "📺 Monitor",
+      "type": "shell",
+      "command": "make monitor",
+      "options": {
+        "cwd": "${workspaceFolder:📦 RetroBox Timer (root)}"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "📚 Installa librerie",
+      "type": "shell",
+      "command": "make lib-install",
+      "options": {
+        "cwd": "${workspaceFolder:📦 RetroBox Timer (root)}"
+      },
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "🚀 Setup iniziale",
+      "type": "shell",
+      "command": "make setup",
+      "options": {
+        "cwd": "${workspaceFolder:📦 RetroBox Timer (root)}"
+      },
+      "presentation": {
+        "reveal": "always"
+      }
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 /*
- * RetroBox Timer Controller v1.1
+ * RetroBox Timer Controller v1.2
  *
  * Questo sketch Arduino implementa un timer digitale con controllo relè, pensato per attivare dispositivi
  * per un intervallo di tempo configurabile (in questo caso lampade UV per Retrobright). L'utente imposta il tempo
@@ -17,11 +17,14 @@
  *
  * Autore: Gabriele Baldassarre
  * Licenza: MIT
- * Versione: 1.1
- * Data: 06/02/2025
+ * Versione: 1.2
+ * Data: 21/09/2026
+ * Changelog: fix race condition ISR/loop, ISR minimale, eliminazione stringhe dinamiche,
+ * EEPROM con magic byte, watchdog, correzione wrap incremento rapido,
+ * correzione overflow int su ore.
  *
  * MIT License
- * Copyright (c) 2025 Gabriele Baldassarre
+ * Copyright (c) 2026 Gabriele Baldassarre
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -43,6 +46,8 @@
 #include <PushButton.h>
 #include <Bounce2.h>
 #include <EEPROM.h>
+#include <util/atomic.h>
+#include <avr/wdt.h>
 
 /*
 #define DEBUG
@@ -67,12 +72,24 @@
 #define MAX_MIN_SEC 59
 
 #define EEPROM_ADDRESS 0
+#define LCD_ADDR 0x27
+#define LCD_COLS 16
+#define LCD_ROWS 2
+#define MAX_TIMER_SECONDS (24UL*3600UL)
+#define TICKS_PER_SECOND 10
+#define BLINK_TOGGLE_TICKS 5
+#define EEPROM_MAGIC 0xAB12
 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+struct EepromData {
+  uint16_t magic;
+  unsigned long seconds;
+};
 
-// Stringhe da visualizzare sul display
-String line_1;
-String line_2;
+LiquidCrystal_I2C lcd(LCD_ADDR, LCD_COLS, LCD_ROWS);
+
+// Buffer da visualizzare sul display
+char line_1[LCD_COLS + 1];
+char line_2[LCD_COLS + 1];
 
 // Stati della macchina
 enum SystemMode {
@@ -81,7 +98,7 @@ enum SystemMode {
   MODE_RUNNING,
   MODE_FINISHED
 };
-SystemMode current_mode  = MODE_FINISHED;
+volatile SystemMode current_mode  = MODE_FINISHED;
 SystemMode previous_mode = current_mode;
 
 // Contasecondi
@@ -99,9 +116,11 @@ PushButton start_stop_button = PushButton(START_STOP_PIN, 0);
 // per non far lampeggiare il display
 volatile bool at_least_one_button_pressed = false;
 
-// Contatore per gestire il timer e le altre funzioni
-volatile unsigned long interrupt_counter = 0;
-volatile unsigned long second_counter = 0;
+// Contatore dei tick pendenti e contatori per gestire il timer nel loop
+volatile uint8_t pending_ticks = 0;
+uint8_t loop_tick_counter = 0;
+unsigned long second_counter = 0;
+bool blink_toggle = false;
 
 // Cursore su quale componente del timer e' correntemente selezionato
 // per farla lampeggiare
@@ -118,13 +137,16 @@ void setup() {
   #endif
 
   lcd.init();
+#if defined(WIRE_HAS_TIMEOUT)
+  Wire.setWireTimeout(25000, true);
+#endif
   lcd.backlight();
 
-  // Configura i pin dei pulsanti come input
-  //pinMode(SET_PIN, INPUT);
-  //pinMode(PLUS_PIN, INPUT);
-  //pinMode(MINUS_PIN, INPUT);
-  //pinMode(START_STOP_PIN, INPUT);
+  // I pulsanti chiudono a GND: pressed = LOW, coerente con PushButton(pin, 0).
+  pinMode(SET_PIN, INPUT_PULLUP);
+  pinMode(PLUS_PIN, INPUT_PULLUP);
+  pinMode(MINUS_PIN, INPUT_PULLUP);
+  pinMode(START_STOP_PIN, INPUT_PULLUP);
 
   // Configura il pin del relé come output
   pinMode(RELAY_PIN, OUTPUT);
@@ -151,16 +173,62 @@ void setup() {
 #endif
 
   timerSeconds = loadTimeFromEEPROM();
-  if (timerSeconds >= (24*3600)) timerSeconds = 0;
+  if (timerSeconds >= MAX_TIMER_SECONDS) timerSeconds = 0;
 
   welcomeScreen();
 
   // Inizializza Timer1 per chiamare l'interrupt handler ogni 100 millisecondi
   Timer1.initialize(100000);  // 100000 microsecondi = 100 millisecondi
   Timer1.attachInterrupt(timerHandler);
+  wdt_enable(WDTO_2S);
 }
 
 void loop() {
+
+  wdt_reset();
+
+  uint8_t ticks_to_process;
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+    ticks_to_process = pending_ticks;
+    pending_ticks = 0;
+  }
+  bool process_second_tick = false;
+  for (uint8_t i = 0; i < ticks_to_process; i++) {
+    loop_tick_counter++;
+    if (loop_tick_counter >= TICKS_PER_SECOND) loop_tick_counter = 0;
+    if (loop_tick_counter % BLINK_TOGGLE_TICKS == 0) blink_toggle = !blink_toggle;
+    if (loop_tick_counter == 0) {
+      process_second_tick = true;
+      if (current_mode == MODE_RUNNING) {
+        if (timerSeconds > 0) timerSeconds--;
+        if (timerSeconds == 0) current_mode = MODE_FINISHED;
+      }
+      second_counter++;
+    }
+  }
+  if (process_second_tick) {
+#ifdef DEBUG
+    unsigned long debug_timer;
+    unsigned long debug_second_counter;
+    unsigned long debug_tick_counter;
+    SystemMode debug_mode;
+    ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+      debug_timer = timerSeconds;
+      debug_second_counter = second_counter;
+      debug_tick_counter = loop_tick_counter;
+      debug_mode = current_mode;
+    }
+    Serial.print("Mode: "); Serial.print(debug_mode);
+    Serial.print("; Set: "); Serial.print(set_button.isPressed());
+    Serial.print("; Plus: "); Serial.print(plus_button.isPressed());
+    Serial.print("; Minus: "); Serial.print(minus_button.isPressed());
+    Serial.print("; Start/Stop: "); Serial.print(start_stop_button.isPressed());
+    Serial.print("; Payload: "); Serial.print(digitalRead(RELAY_PIN) ? "On" : "Off");
+    Serial.print("; Time Left: "); Serial.print(debug_timer); Serial.print(" s");
+    Serial.print("; Elapsed: "); Serial.print(debug_second_counter); Serial.print(" s");
+    Serial.print("; IC: "); Serial.println(debug_tick_counter);
+#endif
+  }
 
   #ifdef ENABLE_BUTTONS
   // Lettura dello stato corrente dei pulsanti
@@ -186,6 +254,9 @@ void loop() {
       controllerFinished();
       break;
   }
+
+  display_visible = ((current_mode == MODE_SET || current_mode == MODE_PAUSED) && !at_least_one_button_pressed) ? blink_toggle : true;
+  updateDisplay();
 }
 
 /**********************
@@ -210,6 +281,9 @@ void onButtonPressed(Button& btn){
       if (current_time_unit > 2) {
         current_time_unit = 0;
         current_mode = previous_mode;
+        unsigned long currentTimer;
+        ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { currentTimer = timerSeconds; }
+        if (previous_mode == MODE_RUNNING && currentTimer == 0) current_mode = MODE_FINISHED;
         }
     } else {
       previous_mode = current_mode;
@@ -236,7 +310,9 @@ void onButtonPressed(Button& btn){
   else if (btn.is(start_stop_button)){
     // Pulsante start/stop premuto
     // Se il timer è a zero forza allo stato di set
-    if (timerSeconds <= 0) {
+    unsigned long currentTimer;
+    ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { currentTimer = timerSeconds; }
+    if (currentTimer <= 0) {
       previous_mode = MODE_FINISHED;
       current_mode = MODE_SET;
       return;
@@ -245,7 +321,7 @@ void onButtonPressed(Button& btn){
       current_mode = MODE_PAUSED;
     } 
     else  {
-      if (current_mode != MODE_PAUSED) saveTimeToEEPROM(timerSeconds);
+      if (current_mode != MODE_PAUSED) saveTimeToEEPROM(currentTimer);
       current_mode = MODE_RUNNING;
     }
   }
@@ -259,8 +335,10 @@ void onSetHold(Button& btn, uint16_t duration){
     #ifdef DEBUG
     Serial.print("Mode: "); Serial.print(current_mode) ; Serial.println("; Timer Reset!");
     #endif
-    timerSeconds = 0;
-    current_mode = MODE_FINISHED;
+    ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+      timerSeconds = 0;
+      current_mode = MODE_FINISHED;
+    }
   }
   #ifdef DEBUG
   else {
@@ -290,30 +368,19 @@ void onButtonsHoldRepeat(Button& btn, uint16_t duration, uint16_t repeatCount){
 // Aggiungi e rimuovi tempo al timer
 // unit: 0=ore, 1=minuti, 2=secondi
 void alterTimer(short unit, int value){
-  int hours   = timerSeconds / 3600;
-  int minutes = (timerSeconds % 3600) / 60;
-  int seconds = timerSeconds % 60;
-  if (unit == 0) {
-      // Modifica le ore
-      hours +=value;
-      if (hours > MAX_HOURS) hours = 0;
-      if (hours < 0) hours = MAX_HOURS;
-      timerSeconds = hours * 3600 + minutes * 60 + seconds;
-    }
-    else if (unit == 1) {
-      // Modifica i minuti
-      minutes +=value;
-      if (minutes > MAX_MIN_SEC) minutes = 0;
-      if (minutes < 0) minutes = MAX_MIN_SEC;
-      timerSeconds = hours * 3600 + minutes * 60 + seconds;
-    }
-    else if (unit == 2){
-      // Modifica i secondi
-      seconds +=value;
-      if (seconds > MAX_MIN_SEC) seconds = 0;
-      if (seconds < 0) seconds = MAX_MIN_SEC;
-      timerSeconds = hours * 3600 + minutes * 60 + seconds;
-    }
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+    unsigned long currentTimer = timerSeconds;
+    int hours   = currentTimer / 3600UL;
+    int minutes = (currentTimer % 3600UL) / 60UL;
+    int seconds = currentTimer % 60UL;
+    if (unit == 0) hours += value;
+    else if (unit == 1) minutes += value;
+    else if (unit == 2) seconds += value;
+    minutes = ((minutes % 60) + 60) % 60;
+    seconds = ((seconds % 60) + 60) % 60;
+    hours = ((hours % 24) + 24) % 24;
+    timerSeconds = (unsigned long)hours * 3600UL + (unsigned long)minutes * 60UL + (unsigned long)seconds;
+  }
 
 }
 
@@ -324,20 +391,21 @@ void saveTimeToEEPROM(unsigned long sec) {
   #ifdef DEBUG
     Serial.print("Mode: "); Serial.print(current_mode);
     Serial.print("; Saved to EEPROM in position "); Serial.print(EEPROM_ADDRESS);
-    Serial.print(": "); Serial.println(timerSeconds);
+    Serial.print(": "); Serial.println(sec);
   #endif
-  EEPROM.put(EEPROM_ADDRESS, sec);
+  EepromData data = { EEPROM_MAGIC, sec };
+  EEPROM.put(EEPROM_ADDRESS, data);
 }
 
 unsigned long loadTimeFromEEPROM() {
-  unsigned long sec;
-  EEPROM.get(EEPROM_ADDRESS, sec);
+  EepromData data;
+  EEPROM.get(EEPROM_ADDRESS, data);
   #ifdef DEBUG
     Serial.print("Mode: "); Serial.print(current_mode);
     Serial.print("; Loaded from EEPROM from position "); Serial.print(EEPROM_ADDRESS);
-    Serial.print(": "); Serial.println(sec);
+    Serial.print(": "); Serial.println(data.seconds);
   #endif
-  return sec;
+  return data.magic == EEPROM_MAGIC ? data.seconds : 0;
 }
 
 /**********************
@@ -366,39 +434,52 @@ void splitTime(unsigned long seconds, int& h, int& m, int& s) {
 
 void controllerRunning() {
   int h, m, s;
-  splitTime(timerSeconds, h, m, s);
+  unsigned long currentTimer;
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { currentTimer = timerSeconds; }
+  splitTime(currentTimer, h, m, s);
 
   setPayload(true);
 
-  line_1 = "Lights are on...";
-  line_2 = "Time: " + formatNumber(h) + ":" + formatNumber(m) + ":" + formatNumber(s);
+  snprintf(line_1, sizeof(line_1), "%-16s", "Lights are on...");
+  snprintf(line_2, sizeof(line_2), "Time: %02d:%02d:%02d  ", h, m, s);
 }
 
 void controllerPaused(){
   int h, m, s;
-  splitTime(timerSeconds, h, m, s);
+  unsigned long currentTimer;
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { currentTimer = timerSeconds; }
+  splitTime(currentTimer, h, m, s);
 
   setPayload(false);
-  line_1 = "Paused!         ";
-  line_2 = "Time: " + (display_visible ? (formatNumber(h) + ":" + formatNumber(m) + ":" + formatNumber(s)) : ("        "));
+  snprintf(line_1, sizeof(line_1), "%-16s", "Paused!");
+  snprintf(line_2, sizeof(line_2), "Time: %s  ", display_visible ? "00:00:00" : "        ");
+  if (display_visible) snprintf(line_2, sizeof(line_2), "Time: %02d:%02d:%02d  ", h, m, s);
 }
 
 void controllerFinished(){
   int h, m, s;
-  splitTime(timerSeconds, h, m, s);
+  unsigned long currentTimer;
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { currentTimer = timerSeconds; }
+  splitTime(currentTimer, h, m, s);
 
   setPayload(false);
-  line_1 = "Retrobox v1.1   ";
-  line_2 = "Time: " + formatNumber(h) + ":" + formatNumber(m) + ":" + formatNumber(s);
+  snprintf(line_1, sizeof(line_1), "%-16s", "Retrobox v1.2");
+  snprintf(line_2, sizeof(line_2), "Time: %02d:%02d:%02d  ", h, m, s);
 }
 
 void controllerSet(){
   int h, m, s;
-  splitTime(timerSeconds, h, m, s);
+  char h_text[3], m_text[3], s_text[3];
+  unsigned long currentTimer;
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { currentTimer = timerSeconds; }
+  splitTime(currentTimer, h, m, s);
 
   //setPayload(false);
-  line_1 = "Set timer...    ";
-  line_2 = "Time: " + (!display_visible && current_time_unit == 0 ? "  " : formatNumber(h)) + ":" + (!display_visible && current_time_unit == 1 ? "  " : formatNumber(m)) + ":" + (!display_visible && current_time_unit == 2 ? "  " : formatNumber(s));
+  snprintf(line_1, sizeof(line_1), "%-16s", "Set timer...");
+  snprintf(h_text, sizeof(h_text), !display_visible && current_time_unit == 0 ? "  " : "%02d", h);
+  snprintf(m_text, sizeof(m_text), !display_visible && current_time_unit == 1 ? "  " : "%02d", m);
+  snprintf(s_text, sizeof(s_text), !display_visible && current_time_unit == 2 ? "  " : "%02d", s);
+  snprintf(line_2, sizeof(line_2), "Time: %s:%s:%s  ", h_text, m_text, s_text);
 
 }
 
@@ -408,74 +489,22 @@ void controllerSet(){
  * GESTIONE DELLA TEMPORIZZAZIONE
  */
 
-// Il timer gestisce solo l'aggiornamento del display e lo stato
-// del timer
+// La ISR genera solo tick saturati a 255; tutta la logica del timer viene gestita nel loop.
 void timerHandler() {
-  interrupt_counter++;
-  // Azioni da eseguire ogni secondo
-  if (interrupt_counter % 10 == 0) {  // 100ms * 10 = 1000ms = 1s
-    #ifdef DEBUG
-    Serial.print("Mode: "); Serial.print(current_mode);
-    Serial.print("; Set: "); Serial.print(set_button.isPressed());
-    Serial.print("; Plus: "); Serial.print(plus_button.isPressed());
-    Serial.print("; Minus: "); Serial.print(minus_button.isPressed());
-    Serial.print("; Start/Stop: "); Serial.print(start_stop_button.isPressed());
-    Serial.print("; Payload: "); Serial.print(digitalRead(RELAY_PIN) ? "On" : "Off");
-    Serial.print("; Time Left: "); Serial.print(timerSeconds); Serial.print(" s");
-    Serial.print("; Elapsed: "); Serial.print(second_counter); Serial.print(" s");
-    Serial.print("; IC: "); Serial.println(interrupt_counter);
-    #endif
-
-    // Se il timer e' in funzione, decrementa il countdown
-    if (current_mode  == MODE_RUNNING) {
-      timerSeconds--;
-      second_counter++;
-
-      if(timerSeconds <= 0){
-        current_mode = MODE_FINISHED;
-        timerSeconds = 0;
-      }
-
-    }
-  }
-
-  // Azioni da eseguire ogni mezzo secondo
-  if (interrupt_counter % 5 == 0) {  // 100ms * 5 = 500ms = 0.5s
-    // Se siamo in stato "set" oppure "pause" imposta la flag per far lampeggiare parti del display
-    // a meno che non ci sia almeno un pulsante premuto
-    if ((current_mode == MODE_SET || current_mode == MODE_PAUSED) && !at_least_one_button_pressed) {
-      display_visible = !display_visible;
-    } else {
-      display_visible = true; 
-    }
-  }
-
-  // Azioni da eseguire ogni 100 msec
-  updateDisplay();
-
-  // Resetta il contatore dopo un periodo di tempo per evitare un overflow
-  if (interrupt_counter >= 20000) {
-    interrupt_counter = 0;
-  }
+  // Saturazione: se il loop è bloccato, i tick oltre 255 non vengono contati
+  // (il watchdog a 2s interviene comunque molto prima)
+  if (pending_ticks < 255) pending_ticks++;
 }
 
 /***********************
  * GESTIONE DEL DISPLAY
  */
 
-// Formato numerico (per i trailing zero)
-String formatNumber(int val) {
-  String out = "";
-  if (val < 10) out += "0";
-  out += val;
-  return out;
-}
-
 // Aggiorna semplicemente il display con i messaggi preparati dalle action degli stati
 void updateDisplay() {
 
     lcd.setCursor(0, 0);
-    lcd.print(line_1);
+  lcd.print(line_1);
 
     lcd.setCursor(0, 1);
     lcd.print(line_2);
@@ -483,10 +512,12 @@ void updateDisplay() {
 
 void welcomeScreen(){
   int h, m, s;
-  splitTime(timerSeconds, h, m, s);
+  unsigned long currentTimer;
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { currentTimer = timerSeconds; }
+  splitTime(currentTimer, h, m, s);
 
-  line_1 = "Retrobox v1.1   ";
-  line_2 = "Time: " + formatNumber(h) + ":" + formatNumber(m) + ":" + formatNumber(s);
+  snprintf(line_1, sizeof(line_1), "%-16s", "Retrobox v1.2");
+  snprintf(line_2, sizeof(line_2), "Time: %02d:%02d:%02d  ", h, m, s);
 
   updateDisplay();
 }

@@ -1,6 +1,6 @@
 # RetroBox Timer Controller
 
-**RetroBox Timer Controller v1.1** è uno sketch per Arduino che implementa un timer digitale con controllo a relè, progettato per applicazioni come il Retrobright (schiarimento plastica tramite lampade UV), ma facilmente adattabile ad altri scopi dove è necessario attivare un carico per un tempo prestabilito.
+**RetroBox Timer Controller v1.2** è uno sketch per Arduino che implementa un timer digitale con controllo a relè, progettato per applicazioni come il Retrobright (schiarimento plastica tramite lampade UV), ma facilmente adattabile ad altri scopi dove è necessario attivare un carico per un tempo prestabilito.
 
 ## ✨ Funzionalità
 
@@ -43,6 +43,33 @@ Assicurati di installare le seguenti librerie dal Library Manager dell'IDE Ardui
     - Le dipendenze sono automaticamente risolte nella versione corretta se installato tramite Library Manager di Arduino IDE.
 - `TimerOne`
 
+## 🔨 Build da riga di comando
+
+Prerequisiti:
+
+- `arduino-cli` — su macOS puoi installarlo con `brew install arduino-cli`, oppure usare l'[installer ufficiale](https://arduino.github.io/arduino-cli/latest/installation/).
+- Esegui `make setup` per installare il core `arduino:avr` e tutte le librerie del progetto.
+
+Il `Makefile` usa `arduino:avr:uno` come FQBN e rileva automaticamente la porta seriale. I target disponibili sono:
+
+| Target | Descrizione |
+|--------|-------------|
+| ❓ `make help` | Mostra l'aiuto (target predefinito) |
+| ✅ `make check-cli` | Verifica la presenza di `arduino-cli` |
+| 🔨 `make compile` | Compila lo sketch |
+| 🔁 `make all` | Alias di `compile` |
+| 📤 `make upload` | Compila e carica lo sketch sulla scheda |
+| 📺 `make monitor` | Avvia il monitor seriale |
+| 🧹 `make clean` | Rimuove gli artefatti di compilazione |
+| 📚 `make lib-install` | Installa le librerie necessarie |
+| 🚀 `make setup` | Installa core Arduino e librerie |
+
+Per usare una porta specifica invece di quella rilevata automaticamente:
+
+```bash
+make upload PORT=/dev/cu.usbmodemXXXX
+```
+
 ## 🔧 Modalità di utilizzo
 
 1. Accendi il dispositivo: visualizzerai la schermata iniziale con il tempo salvato in EEPROM.
@@ -61,23 +88,47 @@ stateDiagram-v2
 
     FINISHED --> SET_MODE      : SET premuto
     FINISHED --> RUNNING       : START/STOP premuto (timer>0)
-    FINISHED --> FINISHED      : START/STOP premuto (timer=0)
+    FINISHED --> SET_MODE      : START/STOP premuto (timer=0)
 
     SET_MODE --> SET_MODE      : SET premuto (cicla ORE→MIN→SEC)
-    SET_MODE --> FINISHED      : SET tenuto 3s (reset) o uscita ciclo unità
+    SET_MODE --> FINISHED      : SET tenuto 3s (reset)
+    SET_MODE --> RUNNING       : uscita ciclo → stato prec. RUNNING (timer>0)
+    SET_MODE --> PAUSED        : uscita ciclo → stato prec. PAUSED
+    SET_MODE --> FINISHED      : uscita ciclo → stato prec. FINISHED o timer=0
     SET_MODE --> RUNNING       : START/STOP premuto (timer>0)
-    SET_MODE --> FINISHED      : START/STOP premuto (timer=0)
+    SET_MODE --> SET_MODE      : START/STOP premuto (timer=0)
 
     RUNNING --> PAUSED         : START/STOP premuto
     RUNNING --> FINISHED       : timerSeconds==0
     RUNNING --> RUNNING        : (rimane se nessun evento)
 
     PAUSED  --> RUNNING        : START/STOP premuto (timer>0)
-    PAUSED  --> FINISHED       : START/STOP premuto (timer=0)
+    PAUSED  --> SET_MODE       : START/STOP premuto (timer=0)
     PAUSED  --> SET_MODE       : SET premuto
 
     FINISHED --> FINISHED      : (rimane finché non si preme un pulsante)
 ```
+
+## 🧪 CI/CD
+
+![CI](https://github.com/theclue/retrobox-arduino-timer/actions/workflows/ci.yml/badge.svg)
+
+GitHub Actions esegue `compile --warnings all` su ogni push e pull request, pubblica l'artefatto `.hex` e include un job di test **compile-only**. L'esecuzione dei test automatizzati con simavr è pianificata.
+
+## 💻 Sviluppo in VS Code
+
+Apri `retrobox-arduino-timer.code-workspace` per usare la configurazione multi-root del progetto. Le cartelle sono organizzate con etichette emoji: `⏱️ Firmware`, `⚙️ Config`, `🔧 CI` e `📦 root`.
+
+Sono disponibili i task `🔨 Build`, `📤 Upload`, `🧹 Clean`, `📺 Monitor`, `📚 Installa librerie` e `🚀 Setup iniziale`. Le estensioni consigliate includono C/C++ (`cpptools`), EditorConfig, Markdownlint e GitHub Actions.
+
+## 🐛 Note tecniche (v1.2)
+
+- L'ISR di Timer1 è minimale: aggiorna solo flag/tick, lasciando I2C, display e Serial al ciclo principale.
+- Gli accessi a `timerSeconds` (32 bit su AVR a 8 bit) sono protetti con `ATOMIC_BLOCK`.
+- La classe `String` è stata rimossa in favore di buffer `char` statici e `snprintf`, evitando frammentazione dell'heap.
+- Il tempo in EEPROM è validato con magic byte `0xAB12` e limitato a un massimo di 24 ore.
+- Il watchdog AVR da 2 s, il timeout I2C e i `pinMode` espliciti con `INPUT_PULLUP` migliorano robustezza e prevedibilità dell'hardware.
+- Il hold-repeat usa il wrap modulare corretto per ore, minuti e secondi; è stato corretto anche l'overflow `int16` nel calcolo delle ore.
 
 ## TODO
 
@@ -91,4 +142,4 @@ Questo progetto è distribuito sotto licenza [MIT](LICENSE).
 
 ---
 
-© 2025 Gabriele Baldassarre
+© 2025-2026 Gabriele Baldassarre

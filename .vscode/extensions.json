@@ -1,0 +1,12 @@
+{
+  "recommendations": [
+    "ms-vscode.cpptools",
+    "editorconfig.editorconfig",
+    "davidanson.vscode-markdownlint",
+    "github.vscode-github-actions"
+  ],
+  "unwantedRecommendations": [
+    "vsciot-vscode.vscode-arduino",
+    "platformio.platformio-ide"
+  ]
+}

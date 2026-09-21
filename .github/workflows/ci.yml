@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: la pipeline ha solo bisogno di leggere il codice
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Arduino UNO sketch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup arduino-cli
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Cache Arduino CLI data
+        uses: actions/cache@v4
+        with:
+          path: ~/.arduino15
+          key: ${{ runner.os }}-arduino-${{ hashFiles('.github/workflows/ci.yml') }}
+
+      - name: Update core index
+        run: arduino-cli core update-index
+
+      - name: Install Arduino AVR core
+        run: arduino-cli core install arduino:avr
+
+      - name: Install libraries
+        shell: bash
+        run: |
+          # Versioni note-stabili; aggiornare i pin quando si validano nuove release.
+          # Se un pin non è disponibile nell'indice, il fallback unpinned mantiene il CI operativo.
+          install_library() {
+            local library="$1"
+            local version="$2"
+            if ! arduino-cli lib install "${library}@${version}"; then
+              echo "::warning::${library}@${version} non disponibile; installazione unpinned"
+              arduino-cli lib install "${library}"
+            fi
+          }
+
+          install_library "LiquidCrystal I2C" "1.1.2"
+          install_library "TimerOne" "1.1.1"
+          install_library "PushButton" "2.1.1"
+          install_library "Bounce2" "2.53"
+
+      - name: Compile sketch
+        run: >-
+          arduino-cli compile
+          --fqbn arduino:avr:uno
+          --warnings all
+          --build-path build
+          relay-timer
+
+      - name: Upload HEX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrobox-timer-hex
+          path: build/*.hex
+          if-no-files-found: warn
+
+  test:
+    name: Compile-only test gate
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Report current test suite
+        run: |
+          echo "Compile pulita con --warnings all = gate di test attuale. Test su simulatore (simavr) pianificati — vedi placeholder sotto."
+
+      # Scaffold futuro per test su simulatore:
+      # - name: Install simavr
+      #   run: sudo apt-get update && sudo apt-get install -y simavr
+      # - name: Run simavr tests
+      #   run: |
+      #     mkdir -p tests
+      #     # Aggiungere qui firmware fixture, harness e asserzioni simavr.

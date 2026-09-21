@@ -1,0 +1,16 @@
+{
+  "folders": [
+    { "path": "relay-timer", "name": "⏱️ Firmware" },
+    { "path": ".vscode", "name": "⚙️ Config" },
+    { "path": ".github", "name": "🔧 CI" },
+    { "path": ".", "name": "📦 RetroBox Timer (root)" }
+  ],
+  "settings": {
+    "files.associations": {
+      "*.ino": "cpp"
+    },
+    "files.exclude": {
+      "build/": true
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "configurations": [
+    {
+      "name": "Arduino AVR (Uno)",
+      // Run `make setup` at least once to install the Arduino AVR core.
+      "includePath": [
+        "${workspaceFolder}/relay-timer/**",
+        "${env:HOME}/.arduino15/packages/arduino/hardware/avr/*/cores/arduino",
+        "${env:HOME}/.arduino15/packages/arduino/hardware/avr/*/variants/standard",
+        "${env:HOME}/Arduino/libraries/**"
+      ],
+      "defines": [
+        "ARDUINO=10808",
+        "ARDUINO_AVR_UNO",
+        "F_CPU=16000000L",
+        "__AVR_ATmega328P__",
+        "USBCON"
+      ],
+      "compilerPath": "",
+      "browse": {
+        "path": [
+          "${workspaceFolder}/relay-timer/**",
+          "${env:HOME}/.arduino15/packages/arduino/hardware/avr/*/cores/arduino",
+          "${env:HOME}/.arduino15/packages/arduino/hardware/avr/*/variants/standard",
+          "${env:HOME}/Arduino/libraries/**"
+        ]
+      },
+      "intelliSenseMode": "gcc-x86",
+      "cStandard": "gnu11",
+      "cppStandard": "gnu++11"
+    }
+  ],
+  "version": 4
+}
