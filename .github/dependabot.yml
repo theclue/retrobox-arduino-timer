@@ -1,0 +1,9 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      # GitHub Actions uses default-days for major, minor, and patch updates.
+      default-days: 5

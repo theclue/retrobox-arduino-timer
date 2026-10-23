@@ -1,0 +1,26 @@
+name: Dependabot auto-merge
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - uses: dependabot/fetch-metadata@v3
+        id: metadata
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - if: steps.metadata.outputs.update-type == 'version-update:semver-major' || steps.metadata.outputs.update-type == 'version-update:semver-minor' || steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        # GitHub auto-merge waits for required checks, including build-and-test.
+        run: gh pr merge --auto --merge "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
